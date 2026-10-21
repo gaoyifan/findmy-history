@@ -50,7 +50,7 @@ function relative(value: string | null): string {
     0,
     Math.floor((Date.now() - Date.parse(value)) / 1000),
   );
-  if (seconds < 60) return "刚刚定位";
+  if (seconds < 60) return "刚刚";
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)} 小时前`;
   return `${Math.floor(seconds / 86_400)} 天前`;
