@@ -10,7 +10,7 @@ The project includes Nix packages, a NixOS recorder module, and a Home Manager m
 flowchart LR
   A[macOS Find My caches] --> B[Python reader]
   K[Runtime decryption keys] --> B
-  B -->|Loopback SSE over SSH| C[TypeScript recorder]
+  B -->|HTTP SSE with bearer token| C[TypeScript recorder]
   C --> D[(SQLite history)]
   C -->|HTTP and live SSE| E[Browser dashboard]
 ```
@@ -26,28 +26,21 @@ Cache sampling does not request fresh locations from Apple. Find My must be sign
 
 ## Nix quick start
 
-From a checkout:
+Provision the runtime cache keys, shared token, and macOS permissions described below. The examples use `192.168.50.10` as the Mac's private address; replace it with your own.
 
 ```sh
-# Build the recorder and dashboard.
-nix build .#dashboard
+# On the Mac, bind the source to its private interface.
+nix run .#source -- --host 192.168.50.10
 
-# Start it against an existing source or SSH tunnel.
-FINDMY_SOURCE_URL=http://127.0.0.1:8766/events \
+# On the recorder host, use a file containing the same token.
+nix build .#dashboard
+FINDMY_SOURCE_URL=http://192.168.50.10:8766/events \
+FINDMY_TOKEN_FILE="$HOME/.local/state/findmy/source.token" \
 FINDMY_DB="$PWD/history.sqlite" \
   nix run .
-
-# On macOS, after provisioning keys and permissions below:
-nix run .#source
 ```
 
-Open `http://127.0.0.1:8787` on the recorder host. To connect two machines, forward the Mac's loopback source socket over authenticated SSH, for example:
-
-```sh
-ssh -N -T -L 127.0.0.1:8766:127.0.0.1:8766 mac-user@mac-host
-```
-
-Keep both HTTP listeners private. The built-in source binds to `127.0.0.1:8766` and has no authentication layer; the dashboard also has no login. For remote access, use an SSH tunnel, private network, or an authenticated reverse proxy. Tunnel supervision, network access rules, and reverse proxies belong in the host's configuration.
+Open `http://127.0.0.1:8787` on the recorder host. The recorder connects directly to the Mac over HTTP and sends `Authorization: Bearer TOKEN` on its SSE request. Keep this connection on a trusted private network and restrict source access to the recorder. The dashboard itself has no login; keep it private or place it behind an authenticated reverse proxy.
 
 ### Flake outputs
 
@@ -89,7 +82,22 @@ chmod 600 ~/.local/state/findmy/keys/LocalStorage.key \
   ~/.local/state/findmy/keys/FMIPDataManager.bplist
 ```
 
-Do not commit keys, embed them in a Nix expression, or import them into the Nix store. They stay on the Mac; the recorder receives decrypted location records over its protected connection.
+Do not commit keys, embed them in a Nix expression, or import them into the Nix store. They stay on the Mac; the recorder receives decrypted location records over authenticated HTTP.
+
+### Shared source token
+
+Create a nonempty token file on the Mac:
+
+```sh
+umask 077
+mkdir -p ~/.local/state/findmy
+openssl rand -hex 32 > ~/.local/state/findmy/source.token
+chmod 600 ~/.local/state/findmy/source.token
+```
+
+Provision the same value on the recorder using your runtime secret-management system. Both files should have mode `0600` and be owned by the user running the respective service. Keep tokens out of Git and the Nix store. The HTTP token is separate from the cache decryption keys above.
+
+The source accepts `--host` (default `127.0.0.1`) and `--token-file` (default `~/.local/state/findmy/source.token`). It requires a nonempty token file and checks the bearer header on every GET, including `/events` and `/healthz`; missing or incorrect credentials return HTTP 401.
 
 ### Terminal and privacy permissions
 
@@ -110,30 +118,42 @@ Import the module in the collecting user's Home Manager configuration. This exam
 ```nix
 { inputs, ... }: {
   imports = [ inputs.findmy-history.homeManagerModules.source ];
-  services.findmy-source.enable = true;
+  services.findmy-source = {
+    enable = true;
+    host = "192.168.50.10";
+  };
 }
 ```
 
-`services.findmy-source.package` can override the reader package. The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive` and launchd's default 10-second restart throttle. Logs go to `~/Library/Logs/findmy-source.log`.
+| Option under `services.findmy-source` | Default |
+| --- | --- |
+| `enable` | `false` |
+| `package` | The reader derivation. |
+| `host` | `127.0.0.1`; set the Mac's private interface address for remote collection. |
+| `tokenFile` | `~/.local/state/findmy/source.token`, resolved under the collecting user's home directory. |
+
+The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive` and launchd's default 10-second restart throttle. Logs go to `~/Library/Logs/findmy-source.log`. It does not create the token file or change network access rules.
 
 ```sh
 launchctl print "gui/$(id -u)/org.nix-community.home.findmy-source"
 tail -n 30 ~/Library/Logs/findmy-source.log
-curl -fsS http://127.0.0.1:8766/healthz
+curl -fsS -H "Authorization: Bearer $(cat ~/.local/state/findmy/source.token)" \
+  http://192.168.50.10:8766/healthz
 ```
 
 The source health endpoint confirms that snapshots are being produced. Check each snapshot's `sources` fields to establish whether individual caches are readable.
 
 ## NixOS recorder
 
-Import the NixOS module and point it at the source, normally through a supervised local SSH forward. This example assumes flake inputs are passed through `specialArgs`:
+Import the NixOS module and point it directly at the Mac's HTTP source. This example assumes flake inputs are passed through `specialArgs`:
 
 ```nix
 { inputs, ... }: {
   imports = [ inputs.findmy-history.nixosModules.default ];
   services.findmy = {
     enable = true;
-    sourceUrl = "http://127.0.0.1:8766/events";
+    sourceUrl = "http://192.168.50.10:8766/events";
+    tokenFile = "/run/secrets/findmy-source-token";
   };
 }
 ```
@@ -146,11 +166,11 @@ Import the NixOS module and point it at the source, normally through a supervise
 | `dataDir` | `/var/lib/findmy` |
 | `host` | `127.0.0.1` |
 | `port` | `8787` |
-| `tokenFile` | `null`; optional runtime bearer-token file for an upstream that supports it. |
+| `tokenFile` | `null`; set a runtime token file when connecting to the built-in macOS source. |
 
-The service and system user/group are named `findmy`. The service creates `dataDir` at startup with ownership `findmy:findmy` and mode `0700`; SQLite files use a private umask. It does not create a separate default directory when `dataDir` changes. No tmpfiles rule runs before a custom data volume is mounted.
+The service and system user/group are named `findmy`. Provision `tokenFile` with the same value as the Mac's token, owned by `findmy` with mode `0600`. The service creates `dataDir` at startup with ownership `findmy:findmy` and mode `0700`; SQLite files use a private umask. It does not create a separate default directory when `dataDir` changes. No tmpfiles rule runs before a custom data volume is mounted.
 
-For an encrypted or separately mounted data volume, add the necessary `requires`/`after` dependencies to `systemd.services.findmy` in your host configuration. A host-specific `ExecStartPre` check can use `lib.mkBefore` to verify the mount before directory creation. The module starts under `multi-user.target`; use `lib.mkForce` to replace `wantedBy` if the host needs a separate unlock target. The module does not manage mounts, SSH credentials, SSH tunnels, certificates, or firewall exposure.
+For an encrypted or separately mounted data volume, add the necessary `requires`/`after` dependencies to `systemd.services.findmy` in your host configuration. A host-specific `ExecStartPre` check can use `lib.mkBefore` to verify the mount before directory creation. The module starts under `multi-user.target`; use `lib.mkForce` to replace `wantedBy` if the host needs a separate unlock target. The module does not manage mounts, token provisioning, certificates, or firewall exposure.
 
 ```sh
 systemctl status findmy
@@ -166,11 +186,11 @@ Without the NixOS module, the dashboard reads these environment variables:
 | --- | --- |
 | `FINDMY_SOURCE_URL` | Required full snapshot SSE URL. |
 | `FINDMY_DB` | SQLite path; defaults to `/var/lib/findmy/findmy.sqlite`. |
-| `FINDMY_TOKEN_FILE` | Optional runtime file containing a source bearer token. |
+| `FINDMY_TOKEN_FILE` | Runtime bearer-token file; required to authenticate to the built-in macOS source. |
 | `HOST` | Listen address; defaults to `127.0.0.1`. |
 | `PORT` | Listen port; defaults to `8787`. |
 
-The built-in macOS source does not validate bearer tokens. Use the optional token setting only with another upstream or proxy that implements that authentication.
+The collector reads `FINDMY_TOKEN_FILE` and sends its value in the `Authorization: Bearer TOKEN` header. The NixOS option remains nullable for other upstreams, but the built-in macOS source always requires authentication.
 
 - `GET /api/status`: connection state, last source observation and receipt, per-source status, and counts.
 - `GET /api/entities`: identities, latest known locations, availability, and point counts.
@@ -178,7 +198,7 @@ The built-in macOS source does not validate bearer tokens. Use the optional toke
 - `GET /api/events`: SSE status updates for the browser.
 - `GET /healthz`: HTTP 200 when the source connection is up and the latest snapshot was both observed and received within 120 seconds; otherwise HTTP 503. Individual cache failures remain visible in the JSON status.
 
-The source endpoint is `GET /events`, publishing `event: snapshot` every 30 seconds and a heartbeat approximately every 10 seconds. It sends the current snapshot to each new subscriber. Snapshots contain `observedAt`, `locations`, and per-cache `sources` status. Locations contain `kind` (`person`, `device`, or `item`), a stable `id`, `name`, nullable coordinates, accuracy, and a nullable source timestamp. All non-null timestamps carry a timezone and are normalized to UTC by the recorder.
+Authenticated requests to the source endpoint `GET /events` receive `event: snapshot` every 30 seconds and a heartbeat approximately every 10 seconds. It sends the current snapshot to each new subscriber. Snapshots contain `observedAt`, `locations`, and per-cache `sources` status. Locations contain `kind` (`person`, `device`, or `item`), a stable `id`, `name`, nullable coordinates, accuracy, and a nullable source timestamp. All non-null timestamps carry a timezone and are normalized to UTC by the recorder.
 
 The recorder retries every five seconds after a stream failure, including 90 seconds without a snapshot. It resumes from the current cache snapshot. Fixes overwritten by Apple during an outage cannot be recovered from that snapshot.
 

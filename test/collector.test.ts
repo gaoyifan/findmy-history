@@ -116,7 +116,8 @@ test("collector reconnects and a replay does not duplicate stored fixes", async 
   const store = new Store(":memory:");
   let attempts = 0;
   const controller = new AbortController();
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
+    assert.equal(request.headers.authorization, "Bearer test-source-token");
     attempts++;
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     response.end(`event: snapshot\ndata: ${JSON.stringify(snapshot())}\n\n`);
@@ -129,6 +130,7 @@ test("collector reconnects and a replay does not duplicate stored fixes", async 
   try {
     await collect({
       url: `http://127.0.0.1:${address.port}/events`,
+      token: "test-source-token",
       signal: controller.signal,
       retryMs: 5,
       onSnapshot(value) {

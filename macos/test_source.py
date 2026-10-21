@@ -1,9 +1,12 @@
 """Exercise transaction boundaries and writer resumption without private fixtures."""
 
+import http.client
+import plistlib
 import signal
 import struct
-import plistlib
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -96,6 +99,69 @@ class SnapshotTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 source.copy_database()
             self.assertEqual(kill.call_args_list[-1].args, (123, signal.SIGCONT))
+
+
+class FeedTests(unittest.TestCase):
+    def setUp(self):
+        self.feed = source.Feed()
+        self.feed.sequence = 1
+        self.feed.payload = b'{"private":"snapshot"}'
+        self.feed.sampled_at = time.monotonic()
+        self.patch = patch.object(source, "FEED", self.feed)
+        self.patch.start()
+        self.server = source.http.server.ThreadingHTTPServer(("127.0.0.1", 0), source.Handler)
+        self.server.daemon_threads = True
+        self.server.authorization = b"Bearer test-source-token"
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+
+    def tearDown(self):
+        self.feed.stopping.set()
+        with self.feed.condition:
+            self.feed.condition.notify_all()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.patch.stop()
+
+    def test_missing_or_wrong_token_cannot_read_health_or_events(self):
+        for path in ["/healthz", "/events"]:
+            for authorization in [None, "Bearer wrong", "Basic test-source-token", "Bearer é"]:
+                with self.subTest(path=path, authorization=authorization):
+                    client = http.client.HTTPConnection(*self.server.server_address, timeout=2)
+                    try:
+                        headers = {} if authorization is None else {"Authorization": authorization}
+                        client.request("GET", path, headers=headers)
+                        response = client.getresponse()
+                        self.assertEqual(response.status, 401)
+                        self.assertEqual(response.getheader("WWW-Authenticate"), "Bearer")
+                        self.assertNotIn(b"snapshot", response.read())
+                    finally:
+                        client.close()
+
+    def test_valid_token_reads_health_and_snapshot(self):
+        for path in ["/healthz", "/events"]:
+            with self.subTest(path=path):
+                client = http.client.HTTPConnection(*self.server.server_address, timeout=2)
+                try:
+                    client.request("GET", path, headers={"Authorization": "Bearer test-source-token"})
+                    response = client.getresponse()
+                    self.assertEqual(response.status, 200)
+                    if path == "/healthz":
+                        self.assertEqual(response.read(), b"ok\n")
+                    else:
+                        self.assertEqual(response.getheader("Content-Type"), "text/event-stream")
+                        self.assertEqual(response.readline(), b"event: snapshot\n")
+                        self.assertEqual(response.readline(), b"data: " + self.feed.payload + b"\n")
+                finally:
+                    client.close()
+
+    def test_worker_rejects_empty_token_before_listening(self):
+        with tempfile.TemporaryDirectory() as directory:
+            token_file = Path(directory) / "token"
+            token_file.touch()
+            with self.assertRaisesRegex(ValueError, "token file is empty"):
+                source.worker(None, "127.0.0.1", token_file)
 
 
 if __name__ == "__main__":

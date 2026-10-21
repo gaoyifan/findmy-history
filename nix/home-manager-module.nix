@@ -16,6 +16,18 @@ in {
       defaultText = lib.literalExpression "pkgs.callPackage ./source.nix {}";
       description = "Package providing the macOS Find My source executable.";
     };
+
+    host = lib.mkOption {
+      type = lib.types.str;
+      default = "127.0.0.1";
+      description = "Address on which the snapshot SSE source listens.";
+    };
+
+    tokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/.local/state/findmy/source.token";
+      description = "Runtime file containing the required HTTP bearer token; never import its contents into the Nix store.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -31,7 +43,13 @@ in {
     launchd.agents.findmy-source = {
       enable = true;
       config = {
-        ProgramArguments = [(lib.getExe cfg.package)];
+        ProgramArguments = [
+          (lib.getExe cfg.package)
+          "--host"
+          cfg.host
+          "--token-file"
+          cfg.tokenFile
+        ];
         KeepAlive = true;
         ProcessType = "Background";
         LimitLoadToSessionType = "Aqua";

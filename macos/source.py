@@ -7,11 +7,11 @@ from PnutCN/findmy-cache-decryptor. See THIRD_PARTY_NOTICES.md.
 
 import argparse
 import datetime as dt
+import hmac
 import http.server
 import json
 import math
 import os
-from pathlib import Path
 import plistlib
 import shlex
 import signal
@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 from Crypto.Cipher import AES, ChaCha20_Poly1305
 
@@ -237,6 +238,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), self.server.authorization):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", "Bearer")
+            self.end_headers()
+            return
         if self.path == "/healthz":
             healthy = bool(FEED.payload) and time.monotonic() - FEED.sampled_at < 90
             self.send_response(200 if healthy else 503)
@@ -267,9 +273,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             pass
 
 
-def worker(pid_file):
+def worker(pid_file, host, token_file):
+    token = token_file.read_bytes().strip()
+    if not token:
+        raise ValueError("Source token file is empty")
     # The port stays exclusive until the collector finishes shutting down.
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 8766), Handler)
+    server = http.server.ThreadingHTTPServer((host, 8766), Handler)
+    server.authorization = b"Bearer " + token
     server.daemon_threads = True
     # Device caches need their producer running; restore its last tab in
     # the background without taking focus from the Photos exporter.
@@ -294,14 +304,26 @@ def worker(pid_file):
         server.server_close()
 
 
-def terminal():
+def terminal(args):
     # Terminal already has Full Disk Access on this VM, as with the Photos
     # exporter. launchd/SSH alone cannot read the protected Find My container.
     with tempfile.TemporaryDirectory(prefix="findmy-terminal-") as directory:
         directory = Path(directory)
         script = directory / "start.command"
         exit_file, pid_file = directory / "exit", directory / "pid"
-        command = shlex.join([sys.executable, str(Path(__file__).resolve()), "--worker", "--pid-file", str(pid_file)])
+        command = shlex.join(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--worker",
+                "--pid-file",
+                str(pid_file),
+                "--host",
+                args.host,
+                "--token-file",
+                str(args.token_file),
+            ]
+        )
         log = shlex.quote(str(Path.home() / "Library/Logs/findmy-source.log"))
         script.write_text(
             f'#!/bin/sh\n{command} >> {log} 2>&1\nstatus=$?\nprintf \'%s\' "$status" > {shlex.quote(str(exit_file))}\nexit "$status"\n'
@@ -349,10 +371,12 @@ def terminal():
 if __name__ == "__main__":
     os.umask(0o077)
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--token-file", type=Path, default=STATE / "source.token")
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--pid-file")
     args = parser.parse_args()
     if args.worker:
-        worker(args.pid_file)
+        worker(args.pid_file, args.host, args.token_file)
     else:
-        sys.exit(terminal())
+        sys.exit(terminal(args))
