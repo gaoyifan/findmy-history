@@ -20,6 +20,12 @@ in
       install -Dm644 -t "$out/share/doc/findmy-history" LICENSE THIRD_PARTY_NOTICES.md
       runHook postInstall
     '';
+    doInstallCheck = true;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      env -i HOME="$TMPDIR" PATH="$out/bin" "$out/bin/findmy-source" --help > /dev/null
+      runHook postInstallCheck
+    '';
     meta = {
       description = "Stream local macOS Find My cache snapshots over SSE";
       homepage = "https://github.com/gaoyifan/findmy-history";
