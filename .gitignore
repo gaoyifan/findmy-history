@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.sqlite*
+__pycache__/
+*.pyc
+/result
+/result-*
+.direnv/

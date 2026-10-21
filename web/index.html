@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Crect width=%2740%27 height=%2740%27 rx=%2710%27 fill=%27%23e8f2e7%27/%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%2710%27 fill=%27none%27 stroke=%27%23316c50%27 stroke-width=%272%27/%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%273%27 fill=%27%23316c50%27/%3E%3C/svg%3E">
+  <meta name="color-scheme" content="light"><title>Find My · 轨迹</title>
+  <link rel="stylesheet" href="/leaflet.css"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Find My 轨迹首页"><span class="brand-icon">⌖</span><span>Find My<span class="brand-sub">轨迹档案</span></span></a>
+    <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection">正在连接…</span></div>
+  </header>
+  <main>
+    <aside class="sidebar">
+      <section class="intro"><p class="eyebrow">位置记录</p><h1>沿途，留个记录。</h1><p class="muted">查看设备、联系人与物品的位置变化。</p></section>
+      <div class="totals"><div><strong id="entity-count">—</strong><span>个对象</span></div><div><strong id="point-count">—</strong><span>个轨迹点</span></div></div>
+      <div class="source-grid" id="sources" aria-label="数据源状态"></div>
+      <div class="filters" role="group" aria-label="对象类型">
+        <button class="filter active" data-kind="all" aria-pressed="true">全部</button><button class="filter" data-kind="person" aria-pressed="false">联系人</button><button class="filter" data-kind="device" aria-pressed="false">设备</button><button class="filter" data-kind="item" aria-pressed="false">物品</button>
+      </div>
+      <div id="entities" class="entities"><p class="empty">等待第一批位置数据…</p></div>
+      <footer class="sidebar-footer"><span id="last-received">尚未收到采集数据</span><p>地图来自 OpenStreetMap，加载底图会向瓦片服务发送当前地图区域。</p></footer>
+    </aside>
+    <section class="workspace" aria-label="轨迹地图">
+      <div class="map-toolbar">
+        <div class="selection"><span class="eyebrow" id="selection-kind">轨迹回放</span><h2 id="selection-name">选择一个对象</h2></div>
+        <div class="time-controls"><label>时间范围<select id="range"><option value="24">最近 24 小时</option><option value="168">最近 7 天</option><option value="720">最近 30 天</option><option value="custom">自定义</option></select></label><button id="fit-map" class="icon-button" title="显示完整轨迹" aria-label="显示完整轨迹">↗</button></div>
+      </div>
+      <div id="custom-range" class="custom-range" hidden><label>开始<input type="datetime-local" id="from"></label><label>结束<input type="datetime-local" id="to"></label><button id="apply-range">应用</button></div>
+      <div class="map-frame"><div id="map"></div><div id="map-empty" class="map-empty"><span>⌖</span><h3>你的轨迹，从这里开始</h3><p>选择左侧对象，查看已记录的位置。</p></div><div id="map-message" class="map-message" role="status" hidden></div></div>
+      <div class="detailbar"><div><span class="detail-label">最近定位</span><strong id="latest-fix">—</strong></div><div><span class="detail-label">定位精度</span><strong id="accuracy">—</strong></div><div><span class="detail-label">范围内轨迹</span><strong id="track-count">—</strong></div><button id="export" disabled>导出 GeoJSON ↓</button></div>
+      <section class="timeline-panel"><div class="timeline-heading"><h3>位置时间线</h3><span id="timeline-caption" class="muted">按定位时间排列</span></div><div id="timeline" class="timeline"><p class="empty">暂无轨迹点</p></div></section>
+    </section>
+  </main>
+</body>
+</html>
