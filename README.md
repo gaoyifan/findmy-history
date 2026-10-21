@@ -22,7 +22,9 @@ flowchart LR
 
 The reader samples every 30 seconds. It briefly pauses the cache writer while copying the encrypted database and WAL into memory, resumes it in `finally`, validates WAL checksums, and applies only committed frames. Decrypted SQLite stays in memory; the reader does not write plaintext database snapshots or modify Apple's caches.
 
-Cache sampling does not request fresh locations from Apple. Find My must be signed in and able to update its caches; the reader opens it in the background. Available objects and refresh frequency depend on macOS, sharing settings, and Find My state. Cache formats are private and may change after an OS update. An unavailable source reports an error while previously saved history remains accessible.
+Cache sampling does not request fresh locations from Apple. On the validated macOS build, Find My stops refreshing five minutes after losing focus, even though its process remains alive. The supervisor renews the session every four minutes: it sends `SIGTERM` only to this user's Find My app, waits for that process to exit, then starts it in the background without activating it. Reopening an existing process does not renew the session. The cache reader and SSE connection stay running throughout; Photos and Apple's location agents are not restarted. This means enabling the reader also periodically closes any Find My window the collecting user has opened.
+
+This follows the background relaunch approach in [FollowMyFriends](https://github.com/bytePatrol/FollowMyFriends/blob/967a82e5af6f4d0e8742136b5fb728d9191f8f46/FollowMyFriends/Services/FindMyLauncher.swift), verified here for people, devices and items. This reader leaves Find My running between renewals to collect intermediate updates. Revalidate this behavior after upgrading macOS: it depends on Find My's private application lifecycle. Available objects and source fix frequency still depend on Apple, sharing settings and device reachability; renewing a session does not guarantee a new fix for every object.
 
 ## Nix quick start
 
@@ -141,7 +143,7 @@ curl -fsS -H "Authorization: Bearer $(cat ~/.local/state/findmy/source.token)" \
   http://192.168.50.10:8766/healthz
 ```
 
-The source health endpoint confirms that snapshots are being produced. Check each snapshot's `sources` fields to establish whether individual caches are readable.
+The source health endpoint confirms that snapshots are being produced. Each snapshot's `sources` fields report readability and `updatedAt`, the cache file's last write time (including the WAL for people). This is separate from `observedAt`, when the reader sampled the files, and each location's `timestamp`, when Apple obtained that fix. The dashboard displays cache write ages alongside its snapshot connection status. A readable cache or a newly received snapshot does not establish that the source positions are fresh.
 
 ## NixOS recorder
 

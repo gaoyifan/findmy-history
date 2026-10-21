@@ -102,7 +102,7 @@ function renderStatus(status: CollectorStatus) {
   text(
     "connection",
     healthy
-      ? "持续采集中"
+      ? "快照接收正常"
       : status.connected
         ? "已连接 · 等待新数据"
         : "采集连接中断 · 正在重连",
@@ -124,12 +124,12 @@ function renderStatus(status: CollectorStatus) {
     const chip = el(
       "div",
       `source ${source ? (source.ok ? "ok" : "failed") : ""}`,
-      `${labels[kind]} ${source ? (source.ok ? String(source.count) : "未就绪") : "等待"}`,
+      `${labels[kind]} ${source ? (source.ok ? String(source.count) : "未就绪") : "等待"}${source?.updatedAt ? ` · 缓存 ${relative(source.updatedAt)}` : ""}`,
     );
     chip.title =
       source?.error ??
       (source
-        ? `${source.count} 个对象，状态来自最近一次采集`
+        ? `${source.count} 个对象${source.updatedAt ? `；缓存写入于 ${date(source.updatedAt)}` : "；缓存写入时间未知"}；定位时间见对象列表`
         : "尚未收到状态");
     sources.append(chip);
   }

@@ -66,6 +66,11 @@ export function parseSnapshot(data: string): Snapshot {
       status.count < 0
     )
       throw new Error(`Invalid ${source} status`);
+    if (status.updatedAt !== undefined) {
+      if (!validTime(status.updatedAt))
+        throw new Error(`Invalid ${source} cache timestamp`);
+      status.updatedAt = new Date(status.updatedAt).toISOString();
+    }
   }
   for (const location of snapshot.locations) {
     if (

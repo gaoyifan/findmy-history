@@ -11,6 +11,7 @@ export interface Location {
 export interface SourceStatus {
   ok: boolean;
   count: number;
+  updatedAt?: string;
   error?: string;
 }
 export interface Snapshot {

@@ -191,15 +191,23 @@ def cache_records(kind, filename):
 
 def snapshot():
     result = {"observedAt": dt.datetime.now(UTC).isoformat(), "locations": [], "sources": {}}
-    for name, read in (
-        ("people", people),
-        ("devices", lambda: cache_records("device", "Devices.data")),
-        ("items", lambda: cache_records("item", "Items.data")),
+    for name, read, paths in (
+        ("people", people, [DATABASE, DATABASE.with_name(DATABASE.name + "-wal")]),
+        (
+            "devices",
+            lambda: cache_records("device", "Devices.data"),
+            [CACHE / "Devices.data"],
+        ),
+        ("items", lambda: cache_records("item", "Items.data"), [CACHE / "Items.data"]),
     ):
         try:
             locations = read()
             result["locations"].extend(locations)
-            result["sources"][name] = {"ok": True, "count": len(locations)}
+            result["sources"][name] = {
+                "ok": True,
+                "count": len(locations),
+                "updatedAt": timestamp(max(path.stat().st_mtime for path in paths if path.exists())),
+            }
         except Exception as error:
             # Diagnostics contain exception class, never the decrypted record/key.
             message = (
@@ -281,9 +289,6 @@ def worker(pid_file, host, token_file):
     server = http.server.ThreadingHTTPServer((host, 8766), Handler)
     server.authorization = b"Bearer " + token
     server.daemon_threads = True
-    # Device caches need their producer running; restore its last tab in
-    # the background without taking focus from the Photos exporter.
-    subprocess.run(["/usr/bin/open", "-g", "-a", "FindMy"], check=True)
     if pid_file:
         Path(pid_file).write_text(str(os.getpid()))
 
@@ -302,6 +307,36 @@ def worker(pid_file, host, token_file):
         # Finish any paused-writer snapshot before the interpreter exits.
         collector.join()
         server.server_close()
+
+
+def relaunch_findmy():
+    # Find My stops all refresh controllers 300 seconds after losing focus.
+    # Reopening a live process does not restart them; a cold background launch
+    # does, including devices and items. Leave the foreground app untouched.
+    process = subprocess.run(
+        ["/usr/bin/pgrep", "-u", str(os.getuid()), "-x", "FindMy"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if process.returncode not in (0, 1):
+        process.check_returncode()
+    for pid in map(int, process.stdout.split()):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Find My did not exit before background relaunch")
+            time.sleep(0.1)
+    subprocess.run(["/usr/bin/open", "-g", "-j", "-a", "FindMy"], check=True, timeout=20)
+    print(dt.datetime.now(UTC).isoformat(), "Find My background session renewed", flush=True)
 
 
 def terminal(args):
@@ -342,6 +377,7 @@ def terminal(args):
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         started = time.monotonic()
+        refresh_at = started
         try:
             while not exit_file.exists():
                 if pid_file.exists():
@@ -351,6 +387,9 @@ def terminal(args):
                         return 1
                 elif time.monotonic() - started > 120:
                     return 1
+                if time.monotonic() >= refresh_at:
+                    relaunch_findmy()
+                    refresh_at = time.monotonic() + 240
                 time.sleep(1)
             return int(exit_file.read_text())
         finally:

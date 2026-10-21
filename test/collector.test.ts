@@ -102,10 +102,16 @@ test("SSE decoding handles comments, CRLF, multi-line data and split UTF-8", asy
 });
 test("snapshot validation normalizes timestamp offsets and rejects invalid coordinates", () => {
   const value = snapshot("2026-10-21T15:00:00+08:00");
+  value.sources.devices.updatedAt = "2026-10-21T14:59:00+08:00";
+  const parsed = parseSnapshot(JSON.stringify(value));
   assert.equal(
-    parseSnapshot(JSON.stringify(value)).locations[0].timestamp,
+    parsed.locations[0].timestamp,
     "2026-10-21T07:00:00.000Z",
   );
+  assert.equal(parsed.sources.devices.updatedAt, "2026-10-21T06:59:00.000Z");
+  value.sources.devices.updatedAt = "invalid";
+  assert.throws(() => parseSnapshot(JSON.stringify(value)), /Invalid devices cache timestamp/);
+  delete value.sources.devices.updatedAt;
   value.locations[0].latitude = 91;
   assert.throws(
     () => parseSnapshot(JSON.stringify(value)),

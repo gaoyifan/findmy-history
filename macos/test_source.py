@@ -1,9 +1,12 @@
 """Exercise transaction boundaries and writer resumption without private fixtures."""
 
 import http.client
+import os
 import plistlib
 import signal
 import struct
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -15,6 +18,53 @@ import source
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_background_relaunch_waits_for_the_old_process_to_exit(self):
+        # Exercise the real signal/exit boundary without touching a GUI app.
+        with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as previous:
+            reaper = threading.Thread(target=previous.wait)
+            reaper.start()
+
+            def run(command, **_kwargs):
+                if command[0] == "/usr/bin/pgrep":
+                    return subprocess.CompletedProcess(command, 0, stdout=f"{previous.pid}\n")
+                self.assertIsNotNone(previous.poll(), "reopening a live app does not renew its session")
+                self.assertEqual(command, ["/usr/bin/open", "-g", "-j", "-a", "FindMy"])
+                return subprocess.CompletedProcess(command, 0)
+
+            try:
+                with patch.object(source.subprocess, "run", side_effect=run):
+                    source.relaunch_findmy()
+            finally:
+                previous.terminate()
+                reaper.join()
+
+    def test_readable_old_caches_keep_their_write_time_in_new_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            database = cache / "LocalStorage.db"
+            for filename in [
+                "LocalStorage.db",
+                "LocalStorage.db-wal",
+                "Devices.data",
+                "Items.data",
+            ]:
+                path = cache / filename
+                path.touch()
+                os.utime(path, (1700000000, 1700000000))
+            os.utime(cache / "LocalStorage.db-wal", (1700000010, 1700000010))
+            with (
+                patch.object(source, "DATABASE", database),
+                patch.object(source, "CACHE", cache),
+                patch.object(source, "people", return_value=[]),
+                patch.object(source, "cache_records", return_value=[]),
+            ):
+                result = source.snapshot()
+            self.assertTrue(all(status["ok"] for status in result["sources"].values()))
+            self.assertEqual(result["sources"]["people"]["updatedAt"], "2023-11-14T22:13:30+00:00")
+            self.assertEqual(result["sources"]["devices"]["updatedAt"], "2023-11-14T22:13:20+00:00")
+            self.assertEqual(result["sources"]["items"]["updatedAt"], "2023-11-14T22:13:20+00:00")
+            self.assertNotEqual(result["observedAt"], result["sources"]["devices"]["updatedAt"])
+
     def test_item_cache_uses_identifier_and_preserves_location_time(self):
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)
