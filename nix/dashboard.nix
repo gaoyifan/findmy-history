@@ -1,7 +1,7 @@
 {
   lib,
   buildNpmPackage,
-  nodejs_24,
+  nodejs,
   makeWrapper,
 }:
 buildNpmPackage {
@@ -21,9 +21,7 @@ buildNpmPackage {
       ../test
     ];
   };
-  nodejs = nodejs_24;
   npmDepsHash = "sha256-s7grOp+veqXVtxd2lmEIkSBhejxbHSORd9kcQ6QjCvU=";
-  npmBuildScript = "build";
   nativeBuildInputs = [makeWrapper];
   doCheck = true;
   checkPhase = ''
@@ -38,7 +36,7 @@ buildNpmPackage {
     cp LICENSE THIRD_PARTY_NOTICES.md $out/share/doc/findmy-history/
     cp dist/server.js $out/lib/findmy/
     cp -r dist/public $out/lib/findmy/
-    makeWrapper ${nodejs_24}/bin/node $out/bin/findmy-dashboard \
+    makeWrapper ${nodejs}/bin/node $out/bin/findmy-dashboard \
       --add-flags $out/lib/findmy/server.js
     runHook postInstall
   '';
@@ -46,7 +44,6 @@ buildNpmPackage {
     description = "Record Find My snapshots in SQLite and display location history";
     homepage = "https://github.com/gaoyifan/findmy-history";
     license = lib.licenses.mit;
-    platforms = lib.platforms.unix;
     mainProgram = "findmy-dashboard";
   };
 }

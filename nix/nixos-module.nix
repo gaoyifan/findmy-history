@@ -74,7 +74,6 @@ in {
         };
       serviceConfig = {
         User = "findmy";
-        Group = "findmy";
         # Run after host-specific mount checks, allowing encrypted data volumes.
         ExecStartPre = [
           "+${pkgs.coreutils}/bin/install ${utils.escapeSystemdExecArgs ["-d" "-o" "findmy" "-g" "findmy" "-m" "0700" cfg.dataDir]}"

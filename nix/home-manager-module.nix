@@ -32,9 +32,7 @@ in {
       enable = true;
       config = {
         ProgramArguments = [(lib.getExe cfg.package)];
-        RunAtLoad = true;
         KeepAlive = true;
-        ThrottleInterval = 15;
         ProcessType = "Background";
         LimitLoadToSessionType = "Aqua";
         StandardOutPath = "${logs}/findmy-source.log";

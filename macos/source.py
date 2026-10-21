@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Find My cache snapshots; decryption keys stay on the logged-in Mac.
 
 LocalStorage cipher derived from sabey/findmy-key-extractor; FMIP envelope

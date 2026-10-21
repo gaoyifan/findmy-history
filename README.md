@@ -55,8 +55,6 @@ Keep both HTTP listeners private. The built-in source binds to `127.0.0.1:8766` 
 | --- | --- |
 | `packages.<system>.dashboard`, `packages.<system>.default` | Node.js 24 recorder with bundled web assets. |
 | `packages.<system>.source` | Python reader with PyCryptodome; macOS only. |
-| `apps.<system>.default` | Run the dashboard with `nix run .`. |
-| `apps.<system>.source` | Run the macOS reader with `nix run .#source`. |
 | `devShells.<system>.default` | Node.js 24, Python 3.13 with PyCryptodome, Alejandra, and Ruff. |
 | `checks.<system>.dashboard` | Build, TypeScript checking, and recorder tests. |
 | `checks.<system>.reader` | Python cache-reader tests. |
@@ -64,7 +62,7 @@ Keep both HTTP listeners private. The built-in source binds to `127.0.0.1:8766` 
 | `nixosModules.default` | NixOS recorder service. |
 | `homeManagerModules.source` | macOS Home Manager launch agent. |
 
-The flake supports `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`; source packages and apps are exposed only on Darwin. Cache-reader runtime behavior has been validated on macOS 26.6.2 on Intel. A successful package build on another platform does not establish compatibility with that platform's Find My cache format.
+The flake supports `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`; source packages are exposed only on Darwin. `nix run` uses each package's `meta.mainProgram`, so separate app definitions are unnecessary. Cache-reader runtime behavior has been validated on macOS 26.6.2 on Intel. A successful package build on another platform does not establish compatibility with that platform's Find My cache format.
 
 ## macOS setup
 
@@ -116,7 +114,7 @@ Import the module in the collecting user's Home Manager configuration. This exam
 }
 ```
 
-`services.findmy-source.package` can override the reader package. The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive` and a 15-second throttle. Logs go to `~/Library/Logs/findmy-source.log`.
+`services.findmy-source.package` can override the reader package. The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive` and launchd's default 10-second restart throttle. Logs go to `~/Library/Logs/findmy-source.log`.
 
 ```sh
 launchctl print "gui/$(id -u)/org.nix-community.home.findmy-source"
