@@ -1,6 +1,6 @@
 # findmy-history
 
-Record Apple Find My locations in SQLite and explore them on a live map. A macOS reader decrypts local caches and publishes snapshots over Server-Sent Events (SSE); a TypeScript service stores distinct fixes and serves a Chinese-language Leaflet dashboard.
+Record Apple Find My locations in SQLite and explore them on a live map. A macOS reader decrypts local caches and publishes snapshots over Server-Sent Events (SSE); a TypeScript service stores distinct fixes and serves a Chinese-language MapLibre dashboard.
 
 The project includes Nix packages, a NixOS recorder module, and a Home Manager module for the macOS reader. It uses local Find My data, rather than an Apple web API. It is not affiliated with Apple.
 
@@ -210,7 +210,7 @@ History is stored in SQLite using WAL mode, without automatic expiration. Failed
 
 For an online backup, use SQLite's backup API or command. Copying only the main database file can omit committed changes still in the WAL.
 
-Application assets and Leaflet are served locally. The browser loads OpenStreetMap tiles when viewing recorded positions; the tile provider receives the viewed map area and the site's origin as the Referer, excluding entity query strings. No reverse geocoding is performed. Follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/) when hosting the dashboard.
+Application assets, MapLibre GL JS and its worker are served locally. The map uses the minimal Positron vector style from [OpenFreeMap](https://openfreemap.org/), without an API key. The browser requests styles, fonts and tiles from `tiles.openfreemap.org`; the provider receives the viewed map area and the site's origin as the Referer, excluding entity query strings. No location history is uploaded to the provider and no reverse geocoding is performed. Required map attribution remains visible.
 
 ## Development and tests
 

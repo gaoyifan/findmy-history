@@ -56,19 +56,15 @@ const staticFiles = new Set([
   "index.html",
   "app.js",
   "style.css",
-  "leaflet.css",
-  "images/layers.png",
-  "images/layers-2x.png",
-  "images/marker-icon.png",
-  "images/marker-icon-2x.png",
-  "images/marker-shadow.png",
+  "maplibre-gl.css",
+  "maplibre-worker.js",
 ]);
 const server = createServer((request, response) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   );
   if (request.method !== "GET") {
     json(response, 405, { error: "Method not allowed" });

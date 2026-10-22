@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Crect width=%2740%27 height=%2740%27 rx=%2710%27 fill=%27%23e8f2e7%27/%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%2710%27 fill=%27none%27 stroke=%27%23316c50%27 stroke-width=%272%27/%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%273%27 fill=%27%23316c50%27/%3E%3C/svg%3E">
   <meta name="color-scheme" content="light"><title>Find My · 轨迹</title>
-  <link rel="stylesheet" href="/leaflet.css"><link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/maplibre-gl.css"><link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
         <button class="filter active" data-kind="all" aria-pressed="true">全部</button><button class="filter" data-kind="person" aria-pressed="false">联系人</button><button class="filter" data-kind="device" aria-pressed="false">设备</button><button class="filter" data-kind="item" aria-pressed="false">物品</button>
       </div>
       <div id="entities" class="entities"><p class="empty">等待第一批位置数据…</p></div>
-      <footer class="sidebar-footer"><span id="last-received">尚未收到采集数据</span><p>地图来自 OpenStreetMap，加载底图会向瓦片服务发送当前地图区域。</p></footer>
+      <footer class="sidebar-footer"><span id="last-received">尚未收到采集数据</span><p>底图由 OpenFreeMap 提供，加载时会发送当前地图区域。</p></footer>
     </aside>
     <section class="workspace" aria-label="轨迹地图">
       <div class="map-toolbar">

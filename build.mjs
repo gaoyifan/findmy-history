@@ -19,10 +19,14 @@ await build({
 });
 await cp("web/index.html", "dist/public/index.html");
 await cp("web/style.css", "dist/public/style.css");
-await cp("node_modules/leaflet/dist/leaflet.css", "dist/public/leaflet.css");
-await cp("node_modules/leaflet/dist/images", "dist/public/images", {
-  recursive: true,
-});
+await cp(
+  "node_modules/maplibre-gl/dist/maplibre-gl.css",
+  "dist/public/maplibre-gl.css",
+);
+await cp(
+  "node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs",
+  "dist/public/maplibre-worker.js",
+);
 await build({
   entryPoints: ["test/collector.test.ts"],
   bundle: true,

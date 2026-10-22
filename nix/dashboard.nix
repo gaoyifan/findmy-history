@@ -21,7 +21,7 @@ buildNpmPackage {
       ../test
     ];
   };
-  npmDepsHash = "sha256-s7grOp+veqXVtxd2lmEIkSBhejxbHSORd9kcQ6QjCvU=";
+  npmDepsHash = "sha256-FBS11GBT/dxCvdm0QYMapetIE124++t6YFBgDhetbJ0=";
   nativeBuildInputs = [makeWrapper];
   doCheck = true;
   checkPhase = ''

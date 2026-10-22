@@ -1,4 +1,13 @@
-import * as L from "leaflet";
+import {
+  Map,
+  NavigationControl,
+  ScaleControl,
+  Popup,
+  LngLatBounds,
+  setWorkerUrl,
+  type GeoJSONSource,
+} from "maplibre-gl";
+import type { FeatureCollection, Point } from "geojson";
 import type {
   CollectorStatus,
   Entity,
@@ -58,18 +67,88 @@ function relative(value: string | null): string {
 function isFresh(value: string | null) {
   return value !== null && Date.now() - Date.parse(value) < 300_000;
 }
-const map = L.map("map", { zoomControl: false }).setView([31.23, 121.47], 10);
-L.control.zoom({ position: "bottomright" }).addTo(map);
-let tiles: L.TileLayer | null = null;
-function enableTiles() {
-  if (!tiles)
-    tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
-    }).addTo(map);
-}
-const layers = L.featureGroup().addTo(map);
+setWorkerUrl("/maplibre-worker.js");
+const map = new Map({
+  container: "map",
+  style: "https://tiles.openfreemap.org/styles/positron",
+  center: [121.47, 31.23],
+  zoom: 10,
+  maxZoom: 19,
+  dragRotate: false,
+  pitchWithRotate: false,
+  touchPitch: false,
+  locale: {
+    "NavigationControl.ZoomIn": "放大",
+    "NavigationControl.ZoomOut": "缩小",
+    "AttributionControl.ToggleAttribution": "地图来源",
+  },
+});
+map.touchZoomRotate.disableRotation();
+map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+const pointPopup = new Popup({ maxWidth: "300px" });
+map.on("load", () => {
+  const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
+  map.addSource("track", { type: "geojson", data: empty });
+  map.addSource("fixes", { type: "geojson", data: empty });
+  map.addLayer({
+    id: "accuracy",
+    type: "circle",
+    source: "fixes",
+    filter: ["==", ["get", "last"], true],
+    paint: {
+      "circle-radius": [
+        "interpolate",
+        ["exponential", 2],
+        ["zoom"],
+        0,
+        ["get", "radius"],
+        22,
+        ["*", ["get", "radius"], 2 ** 22],
+      ],
+      "circle-color": "#4f805b",
+      "circle-opacity": 0.08,
+      "circle-stroke-color": "#7d9c7b",
+      "circle-stroke-width": 1,
+      "circle-stroke-opacity": 0.5,
+    },
+  });
+  map.addLayer({
+    id: "track-line",
+    type: "line",
+    source: "track",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#4f805b", "line-width": 3, "line-opacity": 0.8 },
+  });
+  map.addLayer({
+    id: "fix-points",
+    type: "circle",
+    source: "fixes",
+    paint: {
+      "circle-radius": ["case", ["get", "last"], 7, 3.5],
+      "circle-color": "#4f805b",
+      "circle-opacity": ["case", ["get", "last"], 1, 0.65],
+      "circle-stroke-color": ["case", ["get", "last"], "#fff", "#52775b"],
+      "circle-stroke-width": ["case", ["get", "last"], 3, 1.5],
+    },
+  });
+  drawTrack();
+});
+map.on("click", "fix-points", (event) => {
+  const index = event.features?.[0]?.properties.index;
+  if (index === undefined) return;
+  const point = currentPoints[index];
+  pointPopup
+    .setLngLat([point.longitude, point.latitude])
+    .setDOMContent(popup(point, index))
+    .addTo(map);
+});
+map.on("mouseenter", "fix-points", () => {
+  map.getCanvas().style.cursor = "pointer";
+});
+map.on("mouseleave", "fix-points", () => {
+  map.getCanvas().style.cursor = "";
+});
 let entities: Entity[] = [];
 let selected: Entity | null = null;
 let filter: Kind | "all" = "all";
@@ -235,10 +314,62 @@ function popup(point: TrackPoint, index: number) {
   return content;
 }
 function fitMap() {
-  if (layers.getLayers().length) {
-    map.fitBounds(layers.getBounds(), { padding: [42, 42], maxZoom: 16 });
-    hasFitted = true;
-  }
+  if (!currentPoints.length) return;
+  const bounds = new LngLatBounds();
+  for (const point of currentPoints)
+    bounds.extend([point.longitude, point.latitude]);
+  map.fitBounds(bounds, { padding: 42, maxZoom: 16, duration: 500 });
+  hasFitted = true;
+}
+function drawTrack() {
+  const track = map.getSource<GeoJSONSource>("track");
+  const fixes = map.getSource<GeoJSONSource>("fixes");
+  if (!track || !fixes) return;
+  const coords = currentPoints.map((point) => [
+    point.longitude,
+    point.latitude,
+  ]);
+  track.setData({
+    type: "FeatureCollection",
+    features:
+      coords.length > 1
+        ? [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: { type: "LineString", coordinates: coords },
+            },
+          ]
+        : [],
+  });
+  const stride = Math.max(1, Math.ceil(currentPoints.length / 300));
+  const points: FeatureCollection<Point> = {
+    type: "FeatureCollection",
+    features: [],
+  };
+  currentPoints.forEach((point, index) => {
+    const last = index === currentPoints.length - 1;
+    if (index % stride !== 0 && !last) return;
+    points.features.push({
+      type: "Feature",
+      properties: {
+        index,
+        last,
+        // MapLibre uses a 512 px world at zoom 0; scale metres with Mercator latitude.
+        radius:
+          last && point.accuracy !== null && point.accuracy > 0
+            ? point.accuracy /
+              (78271.51696 * Math.cos((point.latitude * Math.PI) / 180))
+            : 0,
+      },
+      geometry: {
+        type: "Point",
+        coordinates: [point.longitude, point.latitude],
+      },
+    });
+  });
+  fixes.setData(points);
+  if (!hasFitted) fitMap();
 }
 async function loadTrack() {
   if (!selected) return;
@@ -289,41 +420,10 @@ async function loadTrack() {
     );
     if (controller.signal.aborted) return;
     currentPoints = result.points;
-    layers.clearLayers();
-    const coords = currentPoints.map(
-      (point) => [point.latitude, point.longitude] as L.LatLngTuple,
-    );
-    if (coords.length) {
-      enableTiles();
-      L.polyline(coords, { color: "#4f805b", weight: 3, opacity: 0.8 }).addTo(
-        layers,
-      );
-      const stride = Math.max(1, Math.ceil(currentPoints.length / 300));
-      currentPoints.forEach((point, i) => {
-        const last = i === currentPoints.length - 1;
-        if (i % stride !== 0 && !last) return;
-        L.circleMarker([point.latitude, point.longitude], {
-          radius: last ? 7 : 3.5,
-          color: last ? "#fff" : "#52775b",
-          weight: last ? 3 : 1.5,
-          fillColor: "#4f805b",
-          fillOpacity: last ? 1 : 0.65,
-        })
-          .bindPopup(popup(point, i))
-          .addTo(layers);
-        if (last && point.accuracy !== null && point.accuracy > 0)
-          L.circle([point.latitude, point.longitude], {
-            radius: point.accuracy,
-            color: "#7d9c7b",
-            weight: 1,
-            fillOpacity: 0.08,
-            interactive: false,
-          }).addTo(layers);
-      });
-      if (!hasFitted) fitMap();
-    }
-    element("map-empty").hidden = coords.length > 0;
-    if (!coords.length) {
+    pointPopup.remove();
+    drawTrack();
+    element("map-empty").hidden = currentPoints.length > 0;
+    if (!currentPoints.length) {
       const empty = element("map-empty");
       empty.querySelector("h3")!.textContent = "此时间范围内暂无轨迹";
       empty.querySelector("p")!.textContent =
@@ -339,7 +439,7 @@ async function loadTrack() {
     showMessage(
       result.truncated
         ? "轨迹较长，当前展示最近 10,000 个点。请缩短时间范围。"
-        : !selection.available && coords.length
+        : !selection.available && currentPoints.length
           ? "当前定位不可用，显示已保存的历史位置。"
           : null,
     );
@@ -377,11 +477,11 @@ function renderTimeline() {
         ? `定位时间未知；采集于 ${date(point.observedAt)}`
         : `精度 ${point.accuracy === null ? "未知" : `${Math.round(point.accuracy)} 米`}`;
     button.addEventListener("click", () => {
-      map.setView([point.latitude, point.longitude], 16);
-      L.popup()
-        .setLatLng([point.latitude, point.longitude])
-        .setContent(popup(point, currentPoints.indexOf(point)))
-        .openOn(map);
+      map.easeTo({ center: [point.longitude, point.latitude], zoom: 16 });
+      pointPopup
+        .setLngLat([point.longitude, point.latitude])
+        .setDOMContent(popup(point, currentPoints.indexOf(point)))
+        .addTo(map);
     });
     timeline.append(button);
   }
