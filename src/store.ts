@@ -13,6 +13,7 @@ export class Store {
         kind TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
         latitude REAL, longitude REAL, accuracy REAL, timestamp TEXT,
         available INTEGER NOT NULL, firstSeen TEXT NOT NULL, lastSeen TEXT NOT NULL,
+        isOwnDevice INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (kind, id)
       ) STRICT;
       CREATE TABLE IF NOT EXISTS points (
@@ -29,13 +30,24 @@ export class Store {
         observedAt TEXT NOT NULL, receivedAt TEXT NOT NULL, sources TEXT NOT NULL
       ) STRICT;
     `);
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(entities)")
+        .all()
+        .some((column) => column.name === "isOwnDevice")
+    )
+      this.db.exec(
+        "ALTER TABLE entities ADD COLUMN isOwnDevice INTEGER NOT NULL DEFAULT 0",
+      );
   }
 
   ingest(snapshot: Snapshot, receivedAt = new Date().toISOString()): void {
     const entity = this.db.prepare(`
-      INSERT INTO entities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO entities (kind, id, name, latitude, longitude, accuracy,
+        timestamp, available, firstSeen, lastSeen, isOwnDevice)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (kind, id) DO UPDATE SET
-        name = excluded.name,
+        name = excluded.name, isOwnDevice = excluded.isOwnDevice,
         latitude = CASE WHEN excluded.available = 1 AND
           (entities.timestamp IS NULL OR excluded.timestamp >= entities.timestamp)
           THEN excluded.latitude ELSE entities.latitude END,
@@ -69,6 +81,7 @@ export class Store {
           Number(available),
           snapshot.observedAt,
           snapshot.observedAt,
+          Number(location.kind === "device" && location.isOwnDevice === true),
         );
         if (available) {
           point.run(
@@ -130,7 +143,7 @@ export class Store {
       .prepare(
         `SELECT entities.*,
       (SELECT count(*) FROM points WHERE points.kind=entities.kind AND points.id=entities.id) AS pointCount
-      FROM entities ORDER BY kind, name`,
+      FROM entities ORDER BY latitude IS NULL, isOwnDevice DESC, kind, name`,
       )
       .all() as unknown as Entity[];
   }

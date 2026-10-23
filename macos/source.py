@@ -185,7 +185,10 @@ def cache_records(kind, filename):
         stamp = location.get("timeStamp")
         stamp = timestamp(stamp / 1000) if isinstance(stamp, (int, float)) else None
         ident = record["identifier" if kind == "item" else "id"]
-        result.append(point(kind, ident, record.get("name"), location, stamp))
+        value = point(kind, ident, record.get("name"), location, stamp)
+        if kind == "device":
+            value["isOwnDevice"] = record.get("fmlyShare") is False
+        result.append(value)
     return result
 
 

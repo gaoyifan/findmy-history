@@ -104,6 +104,23 @@ class SnapshotTests(unittest.TestCase):
             self.assertIsNone(locations[1]["latitude"])
             self.assertIsNone(locations[1]["timestamp"])
 
+    def test_device_ownership_comes_from_family_sharing_not_the_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            key = bytes(range(32))
+            (cache / "FMIPDataManager.bplist").write_bytes(plistlib.dumps({"symmetricKey": {"key": {"data": key}}}))
+            records = [
+                {"id": "own", "name": "Unrelated name", "fmlyShare": False},
+                {"id": "family", "name": "Same name", "fmlyShare": True},
+                {"id": "unknown", "name": "Same name"},
+            ]
+            cipher = source.ChaCha20_Poly1305.new(key=key, nonce=bytes(12))
+            encrypted, tag = cipher.encrypt_and_digest(plistlib.dumps(records))
+            (cache / "Devices.data").write_bytes(plistlib.dumps({"encryptedData": bytes(12) + encrypted + tag}))
+            with patch.object(source, "CACHE", cache), patch.object(source, "KEYS", cache):
+                locations = source.cache_records("device", "Devices.data")
+            self.assertEqual([location["isOwnDevice"] for location in locations], [True, False, False])
+
     def page(self, marker):
         data = bytearray(bytes([marker]) * source.PAGE)
         data[:16] = b"SQLite format 3\0"

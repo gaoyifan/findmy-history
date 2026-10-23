@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Store } from "../src/store.js";
 import { collect, events, parseSnapshot } from "../src/source.js";
 import type { Snapshot } from "../src/types.js";
@@ -86,6 +90,74 @@ test("unavailable fixes and failed sources preserve history without fabricating 
     store.close();
   }
 });
+test("ownership migration preserves history and sorts located own devices first without name assumptions", () => {
+  const directory = mkdtempSync(join(tmpdir(), "findmy-ownership-"));
+  const path = join(directory, "history.sqlite");
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`CREATE TABLE entities (
+    kind TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
+    latitude REAL, longitude REAL, accuracy REAL, timestamp TEXT,
+    available INTEGER NOT NULL, firstSeen TEXT NOT NULL, lastSeen TEXT NOT NULL,
+    PRIMARY KEY (kind, id)
+  ) STRICT;
+  INSERT INTO entities VALUES ('device', 'legacy', 'Legacy', 31, 121, 12,
+    '2026-10-21T07:00:00.000Z', 1, '2026-10-21T08:00:00.000Z', '2026-10-21T08:00:00.000Z');
+  CREATE TABLE points (
+    seq INTEGER PRIMARY KEY, kind TEXT, id TEXT, timestamp TEXT, timestampKey TEXT,
+    latitude REAL, longitude REAL, accuracy REAL, observedAt TEXT,
+    UNIQUE (kind, id, timestampKey, latitude, longitude)
+  );
+  INSERT INTO points VALUES (1, 'device', 'legacy', '2026-10-21T07:00:00.000Z',
+    '2026-10-21T07:00:00.000Z', 31, 121, 12, '2026-10-21T08:00:00.000Z');`);
+  legacy.close();
+  const store = new Store(path);
+  try {
+    assert.equal(store.entities()[0].id, "legacy");
+    assert.equal(store.entities()[0].latitude, 31);
+    assert.equal(store.entities()[0].isOwnDevice, 0);
+    const value = snapshot();
+    value.locations = [
+      {
+        ...value.locations[0],
+        kind: "device",
+        id: "family",
+        name: "A",
+        isOwnDevice: false,
+      },
+      {
+        ...value.locations[0],
+        kind: "device",
+        id: "own",
+        name: "Z",
+        isOwnDevice: true,
+      },
+      {
+        ...value.locations[0],
+        kind: "device",
+        id: "missing",
+        name: "B",
+        latitude: null,
+        longitude: null,
+        isOwnDevice: true,
+      },
+    ];
+    store.ingest(parseSnapshot(JSON.stringify(value)));
+    assert.deepEqual(
+      store.entities().map((entity) => entity.id),
+      ["own", "family", "legacy", "missing"],
+    );
+    assert.equal(store.counts().pointCount, 3);
+    // Ownership can change without a new GPS fix or a new history point.
+    value.locations[0].isOwnDevice = true;
+    value.locations[1].isOwnDevice = false;
+    store.ingest(value);
+    assert.equal(store.entities()[0].id, "family");
+    assert.equal(store.counts().pointCount, 3);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true });
+  }
+});
 test("SSE decoding handles comments, CRLF, multi-line data and split UTF-8", async () => {
   const bytes = new TextEncoder().encode(
     ": comment\r\nevent: snapshot\r\ndata: 第一行\r\ndata: 第二行\r\n\r\n",
@@ -104,14 +176,20 @@ test("snapshot validation normalizes timestamp offsets and rejects invalid coord
   const value = snapshot("2026-10-21T15:00:00+08:00");
   value.sources.devices.updatedAt = "2026-10-21T14:59:00+08:00";
   const parsed = parseSnapshot(JSON.stringify(value));
-  assert.equal(
-    parsed.locations[0].timestamp,
-    "2026-10-21T07:00:00.000Z",
-  );
+  assert.equal(parsed.locations[0].timestamp, "2026-10-21T07:00:00.000Z");
   assert.equal(parsed.sources.devices.updatedAt, "2026-10-21T06:59:00.000Z");
   value.sources.devices.updatedAt = "invalid";
-  assert.throws(() => parseSnapshot(JSON.stringify(value)), /Invalid devices cache timestamp/);
+  assert.throws(
+    () => parseSnapshot(JSON.stringify(value)),
+    /Invalid devices cache timestamp/,
+  );
   delete value.sources.devices.updatedAt;
+  value.locations[0].isOwnDevice = "false" as unknown as boolean;
+  assert.throws(
+    () => parseSnapshot(JSON.stringify(value)),
+    /Invalid source location/,
+  );
+  delete value.locations[0].isOwnDevice;
   value.locations[0].latitude = 91;
   assert.throws(
     () => parseSnapshot(JSON.stringify(value)),

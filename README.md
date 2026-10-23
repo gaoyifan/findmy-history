@@ -18,7 +18,7 @@ flowchart LR
 - **People:** decrypts `LocalStorage.db` and its committed WAL frames, then joins friend identities with secure locations.
 - **Devices and items:** authenticates and decrypts `Devices.data` and `Items.data` using the FMIP cache key. Items can include AirTags and individual accessory components.
 - **History:** deduplicates fixes by object, source timestamp, and coordinates. Replayed snapshots do not create duplicate points. Missing source timestamps stay `null`; an untimed fix does not replace a latest fix whose timestamp is known.
-- **Dashboard:** object filters, selectable time ranges, map tracks, a location timeline, live collection status, and GeoJSON export.
+- **Dashboard:** object filters, selectable time ranges (6 hours, 24 hours, 2 days, 7 days, 30 days or custom), map tracks, a location timeline, live collection status, and GeoJSON export. Devices belonging to the signed-in Apple account appear first; objects without saved coordinates appear last, with names sorted within each kind and ownership group.
 
 The reader samples every 30 seconds. It briefly pauses the cache writer while copying the encrypted database and WAL into memory, resumes it in `finally`, validates WAL checksums, and applies only committed frames. Decrypted SQLite stays in memory; the reader does not write plaintext database snapshots or modify Apple's caches.
 
@@ -200,7 +200,7 @@ The collector reads `FINDMY_TOKEN_FILE` and sends its value in the `Authorizatio
 - `GET /api/events`: SSE status updates for the browser.
 - `GET /healthz`: HTTP 200 when the source connection is up and the latest snapshot was both observed and received within 120 seconds; otherwise HTTP 503. Individual cache failures remain visible in the JSON status.
 
-Authenticated requests to the source endpoint `GET /events` receive `event: snapshot` every 30 seconds and a heartbeat approximately every 10 seconds. It sends the current snapshot to each new subscriber. Snapshots contain `observedAt`, `locations`, and per-cache `sources` status. Locations contain `kind` (`person`, `device`, or `item`), a stable `id`, `name`, nullable coordinates, accuracy, and a nullable source timestamp. All non-null timestamps carry a timezone and are normalized to UTC by the recorder.
+Authenticated requests to the source endpoint `GET /events` receive `event: snapshot` every 30 seconds and a heartbeat approximately every 10 seconds. It sends the current snapshot to each new subscriber. Snapshots contain `observedAt`, `locations`, and per-cache `sources` status. Locations contain `kind` (`person`, `device`, or `item`), a stable `id`, `name`, nullable coordinates, accuracy, and a nullable source timestamp. Device locations also carry `isOwnDevice`, derived from Apple's `fmlyShare: false` cache flag; absent or unknown ownership does not imply ownership. The recorder stores this metadata independently of GPS fixes and migrates existing SQLite databases on startup. All non-null timestamps carry a timezone and are normalized to UTC by the recorder.
 
 The recorder retries every five seconds after a stream failure, including 90 seconds without a snapshot. It resumes from the current cache snapshot. Fixes overwritten by Apple during an outage cannot be recovered from that snapshot.
 

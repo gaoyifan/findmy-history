@@ -125,12 +125,6 @@ main {
   color: var(--muted);
   margin: 0 0 10px;
 }
-.intro h1 {
-  font-size: 25px;
-  letter-spacing: -0.8px;
-  font-weight: 580;
-  margin: 0 0 13px;
-}
 .muted {
   color: var(--muted);
   font-size: 12px;
@@ -598,9 +592,6 @@ main {
     column-gap: 20px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
-  }
-  .intro h1 {
-    font-size: 22px;
   }
   .intro .muted {
     display: none;

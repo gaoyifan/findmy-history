@@ -7,6 +7,7 @@ export interface Location {
   longitude: number | null;
   accuracy: number | null;
   timestamp: string | null;
+  isOwnDevice?: boolean;
 }
 export interface SourceStatus {
   ok: boolean;
@@ -19,7 +20,8 @@ export interface Snapshot {
   locations: Location[];
   sources: { people: SourceStatus; devices: SourceStatus; items: SourceStatus };
 }
-export interface Entity extends Location {
+export interface Entity extends Omit<Location, "isOwnDevice"> {
+  isOwnDevice: number;
   available: number;
   firstSeen: string;
   lastSeen: string;

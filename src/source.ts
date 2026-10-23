@@ -78,6 +78,8 @@ export function parseSnapshot(data: string): Snapshot {
       typeof location.id !== "string" ||
       !location.id ||
       typeof location.name !== "string" ||
+      (location.isOwnDevice !== undefined &&
+        typeof location.isOwnDevice !== "boolean") ||
       !coordinate(location.latitude, 90) ||
       !coordinate(location.longitude, 180) ||
       (location.latitude === null) !== (location.longitude === null) ||
