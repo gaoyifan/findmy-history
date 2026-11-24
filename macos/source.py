@@ -15,6 +15,7 @@ import os
 import plistlib
 import shlex
 import signal
+import socketserver
 import sqlite3
 import struct
 import subprocess
@@ -284,12 +285,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             pass
 
 
+class SourceHTTPServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
+
 def worker(pid_file, host, token_file):
     token = token_file.read_bytes().strip()
     if not token:
         raise ValueError("Source token file is empty")
     # The port stays exclusive until the collector finishes shutting down.
-    server = http.server.ThreadingHTTPServer((host, 8766), Handler)
+    server = SourceHTTPServer((host, 8766), Handler)
     server.authorization = b"Bearer " + token
     server.daemon_threads = True
     if pid_file:
