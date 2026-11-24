@@ -22,7 +22,7 @@ flowchart LR
 
 The reader samples every 30 seconds. It briefly pauses the cache writer while copying the encrypted database and WAL into memory, resumes it in `finally`, validates WAL checksums, and applies only committed frames. Decrypted SQLite stays in memory; the reader does not write plaintext database snapshots or modify Apple's caches.
 
-Cache sampling does not request fresh locations from Apple. On the validated macOS build, Find My stops refreshing five minutes after losing focus, even though its process remains alive. The supervisor renews the session every four minutes: it sends `SIGTERM` only to this user's Find My app, waits for that process to exit, then starts it in the background without activating it. Reopening an existing process does not renew the session. The cache reader and SSE connection stay running throughout; Photos and Apple's location agents are not restarted. This means enabling the reader also periodically closes any Find My window the collecting user has opened.
+Cache sampling does not request fresh locations from Apple. On the validated macOS build, Find My stops refreshing five minutes after losing focus, even though its process remains alive. The reader renews the session every four minutes: it sends `SIGTERM` only to this user's Find My app, waits for that process to exit, then starts it in the background without activating it. Reopening an existing process does not renew the session. The cache reader and SSE connection stay running throughout; Photos and Apple's location agents are not restarted. This means enabling the reader also periodically closes any Find My window the collecting user has opened.
 
 This follows the background relaunch approach in [FollowMyFriends](https://github.com/bytePatrol/FollowMyFriends/blob/967a82e5af6f4d0e8742136b5fb728d9191f8f46/FollowMyFriends/Services/FindMyLauncher.swift), verified here for people, devices and items. This reader leaves Find My running between renewals to collect intermediate updates. Revalidate this behavior after upgrading macOS: it depends on Find My's private application lifecycle. Available objects and source fix frequency still depend on Apple, sharing settings and device reachability; renewing a session does not guarantee a new fix for every object.
 
@@ -101,11 +101,9 @@ Provision the same value on the recorder using your runtime secret-management sy
 
 The source accepts `--host` (default `127.0.0.1`) and `--token-file` (default `~/.local/state/findmy/source.token`). It requires a nonempty token file and checks the bearer header on every GET, including `/events` and `/healthz`; missing or incorrect credentials return HTTP 401.
 
-### Terminal and privacy permissions
+### App bundle and privacy permissions
 
-The reader's supervisor starts its worker in Terminal so the worker can use Terminal's Full Disk Access. Grant **Terminal** Full Disk Access in **System Settings → Privacy & Security → Full Disk Access**. Start the source in the logged-in session and approve macOS Automation access to control Terminal when requested. The permission may be associated with the packaged Python interpreter, so an interpreter upgrade can require another approval.
-
-The supervisor owns a Terminal window for the worker and closes it during shutdown. Leave the session logged in. Logging out stops collection; the module does not configure automatic login or alter macOS privacy permissions.
+The Darwin package provides `FindMySource.app` with the stable bundle identifier `com.gaoyifan.findmy-source`. The Home Manager module copies and ad-hoc signs it under `~/Applications/FindMySource.app`, then launches the reader directly from the app bundle. Add this app to **System Settings → Privacy & Security → Full Disk Access**. The permission belongs to the bundle instead of a changing Nix store interpreter. A Developer ID signing identity can replace the ad-hoc signature when the machine has one. Leave the session logged in. Logging out stops collection; the module does not configure automatic login or alter macOS privacy permissions.
 
 ### Home Manager
 
@@ -134,7 +132,7 @@ Import the module in the collecting user's Home Manager configuration. This exam
 | `host` | `127.0.0.1`; set the Mac's private interface address for remote collection. |
 | `tokenFile` | `~/.local/state/findmy/source.token`, resolved under the collecting user's home directory. |
 
-The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive` and launchd's default 10-second restart throttle. Logs go to `~/Library/Logs/findmy-source.log`. It does not create the token file or change network access rules.
+The module asserts Darwin, starts only in an Aqua session, and maintains the launch agent `org.nix-community.home.findmy-source` with `KeepAlive`. The agent runs the worker inside `~/Applications/FindMySource.app`, and logs go to `~/Library/Logs/findmy-source.log`. It does not create the token file or change network access rules.
 
 ```sh
 launchctl print "gui/$(id -u)/org.nix-community.home.findmy-source"

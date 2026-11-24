@@ -6,6 +6,7 @@
 }: let
   cfg = config.services.findmy-source;
   logs = "${config.home.homeDirectory}/Library/Logs";
+  python = pkgs.python3.withPackages (ps: [ps.pycryptodome]);
 in {
   options.services.findmy-source = {
     enable = lib.mkEnableOption "the macOS Find My snapshot SSE source";
@@ -38,18 +39,31 @@ in {
       }
     ];
 
-    # Terminal supplies the worker's existing Full Disk Access. Decryption keys
+    # The app bundle is the stable Full Disk Access subject. Decryption keys
     # stay in private runtime files under ~/.local/state/findmy/keys.
+    home.activation.findmySourceApp = lib.hm.dag.entryBetween ["setupLaunchAgents"] ["writeBoundary"] ''
+      app="$HOME/Applications/FindMySource.app"
+      rm -rf "$app"
+      mkdir -p "$HOME/Applications"
+      cp -R "${cfg.package}/FindMySource.app" "$app"
+      chmod -R u+w "$app"
+      /usr/bin/codesign --force --deep --sign - "$app"
+    '';
     launchd.agents.findmy-source = {
       enable = true;
       config = {
         ProgramArguments = [
-          (lib.getExe cfg.package)
+          "${config.home.homeDirectory}/Applications/FindMySource.app/Contents/MacOS/findmy-source"
+          "${config.home.homeDirectory}/Applications/FindMySource.app/Contents/Resources/source.py"
+          "--worker"
           "--host"
           cfg.host
           "--token-file"
           cfg.tokenFile
         ];
+        EnvironmentVariables = {
+          PYTHONPATH = "${python}/${python.sitePackages}";
+        };
         KeepAlive = true;
         ProcessType = "Background";
         LimitLoadToSessionType = "Aqua";

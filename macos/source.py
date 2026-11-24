@@ -13,14 +13,11 @@ import json
 import math
 import os
 import plistlib
-import shlex
 import signal
-import socketserver
 import sqlite3
+import socketserver
 import struct
 import subprocess
-import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -311,6 +308,17 @@ def worker(pid_file, host, token_file):
     signal.signal(signal.SIGINT, stop)
     collector = threading.Thread(target=FEED.collect, name="cache-reader")
     collector.start()
+
+    def refresh_findmy():
+        while not FEED.stopping.is_set():
+            try:
+                relaunch_findmy()
+            except Exception as error:
+                print(f"Find My background refresh failed: {type(error).__name__}: {error}", flush=True)
+            FEED.stopping.wait(240)
+
+    refresh = threading.Thread(target=refresh_findmy, name="findmy-refresh", daemon=True)
+    refresh.start()
     try:
         server.serve_forever()
     finally:
@@ -350,83 +358,12 @@ def relaunch_findmy():
     print(dt.datetime.now(UTC).isoformat(), "Find My background session renewed", flush=True)
 
 
-def terminal(args):
-    # Terminal already has Full Disk Access on this VM, as with the Photos
-    # exporter. launchd/SSH alone cannot read the protected Find My container.
-    with tempfile.TemporaryDirectory(prefix="findmy-terminal-") as directory:
-        directory = Path(directory)
-        script = directory / "start.command"
-        exit_file, pid_file = directory / "exit", directory / "pid"
-        command = shlex.join(
-            [
-                sys.executable,
-                str(Path(__file__).resolve()),
-                "--worker",
-                "--pid-file",
-                str(pid_file),
-                "--host",
-                args.host,
-                "--token-file",
-                str(args.token_file),
-            ]
-        )
-        log = shlex.quote(str(Path.home() / "Library/Logs/findmy-source.log"))
-        script.write_text(
-            f'#!/bin/sh\n{command} >> {log} 2>&1\nstatus=$?\nprintf \'%s\' "$status" > {shlex.quote(str(exit_file))}\nexit "$status"\n'
-        )
-        script.chmod(0o700)
-        apple = (
-            'tell application "Terminal"\ndo script '
-            + json.dumps(shlex.quote(str(script)))
-            + "\nreturn id of front window\nend tell"
-        )
-        window = int(subprocess.check_output(["/usr/bin/osascript", "-e", apple], text=True).strip())
-
-        def stop(_signum, _frame):
-            raise SystemExit(0)
-
-        signal.signal(signal.SIGTERM, stop)
-        signal.signal(signal.SIGINT, stop)
-        started = time.monotonic()
-        refresh_at = started
-        try:
-            while not exit_file.exists():
-                if pid_file.exists():
-                    try:
-                        os.kill(int(pid_file.read_text()), 0)
-                    except ProcessLookupError:
-                        return 1
-                elif time.monotonic() - started > 120:
-                    return 1
-                if time.monotonic() >= refresh_at:
-                    relaunch_findmy()
-                    refresh_at = time.monotonic() + 240
-                time.sleep(1)
-            return int(exit_file.read_text())
-        finally:
-            if pid_file.exists():
-                try:
-                    os.kill(int(pid_file.read_text()), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            deadline = time.monotonic() + 3
-            while pid_file.exists() and not exit_file.exists() and time.monotonic() < deadline:
-                time.sleep(0.05)
-            subprocess.run(
-                ["/usr/bin/osascript", "-e", f'tell application "Terminal" to close window id {window}'],
-                capture_output=True,
-            )
-
-
 if __name__ == "__main__":
     os.umask(0o077)
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--token-file", type=Path, default=STATE / "source.token")
-    parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--pid-file")
     args = parser.parse_args()
-    if args.worker:
-        worker(args.pid_file, args.host, args.token_file)
-    else:
-        sys.exit(terminal(args))
+    worker(args.pid_file, args.host, args.token_file)
